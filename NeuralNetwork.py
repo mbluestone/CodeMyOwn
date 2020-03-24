@@ -3,7 +3,9 @@ import csv
 import random
 import math
 import pandas as pd
+from sklearn.model_selection import train_test_split
 from abc import ABC, abstractmethod
+import time
 
 class Module(ABC):
     '''
@@ -55,9 +57,11 @@ class MultiLayerPerceptron(Module):
         
     def forward(self,x):
         
+        # loop through network layers and run forward method
         for layer in self.network:
             x = layer(x)
-        
+            
+        # return final layer output
         return x
     
     def backward(self,grad):
@@ -66,50 +70,125 @@ class MultiLayerPerceptron(Module):
         for layer in self.network[::-1]:
             
             # compute gradient and pass along
-            try:
-                if isinstance(layer,LinearLayer):
-                    grad = layer.backward(grad,self.learning_rate)
-                else:
-                    grad = layer.backward(grad)
-            except Exception as e:
-                print(f'Error computing gradient for {layer} layer')
-                break
+            if isinstance(layer,LinearLayer):
+                grad = layer.backward(grad,self.learning_rate)
+            else:
+                grad = layer.backward(grad)
     
-    def train(self,x,y,num_epochs=100,verbose=False):
-            
+    def train(self,x,y,val_split=0.2,num_epochs=100,verbose=False,output_metrics=False):
+        
+        # one hot encode y
+        onehot_y = OneHotEncode(y)
+        
+        # split data in train and validation sets
+        X_train, X_val, y_train, y_val = train_test_split(x, 
+                                                          onehot_y, 
+                                                          test_size=val_split)
+          
+        # make sure training data is a numpy array
+        if isinstance(x,pd.DataFrame):
+            X_train = X_train.to_numpy()
+            X_val = X_val.to_numpy()
+        
         # loop through training epochs
-        loss_by_epoch = []
-        for _ in range(num_epochs):
+        start = time.time()
+        all_train_loss = []
+        all_val_loss = []
+        all_train_acc = []
+        all_val_acc = []
+        for epoch in range(num_epochs):
             
-            # split data into batches
-            np.random.shuffle(x)
-            if self.batch_size > 1:
-                batch_data = np.array_split(x,x.shape[0]/self.batch_size)
+            # create training batches
+            train_batch_data = self.create_batches(X_train,y_train)
 
-            # loop through batches of data
-            for batch in batch_data:
+            # loop through batches of training data
+            train_losses = []
+            train_accs = []
+            for batch in train_batch_data:
+                
+                # break up x and y
+                batch_x = batch[:,:x.shape[1]]
+                batch_y = batch[:,x.shape[1]:]
 
                 # forward pass
-                preds = self.forward(batch)
+                preds = self.forward(batch_x)
                 
                 # calculate loss
-                loss = self.cost_function(y,preds)
-                loss_by_epoch.append(loss.mean())
+                train_loss = self.cost_function(batch_y,preds)
+                train_losses.append(train_loss)
+                
+                # calculate accuracy
+                train_acc = self.calculate_accuracy(batch_y,preds)
+                train_accs.append(train_acc)
                 
                 # backward pass
                 self.backward(self.cost_function.backward())
+           
+            # add epoch loss and acc to running list
+            all_train_loss.append(np.mean(train_losses))
+            all_train_acc.append(np.mean(train_accs))
                 
-        return loss_by_epoch
-    
-    def test(self,x,y,verbose=False):
+            # create training batches
+            val_batch_data = self.create_batches(X_val,y_val)
+
+            # loop through batches of training data
+            val_losses = [0]
+            val_accs = []
+            for batch in val_batch_data:
+                
+                # break up x and y
+                batch_x = batch[:,:x.shape[1]]
+                batch_y = batch[:,x.shape[1]:]
+
+                # forward pass
+                preds = self.forward(batch_x)
+                
+                # calculate loss
+                val_loss = self.cost_function(batch_y,preds)
+                val_losses.append(np.mean(val_loss))
+                
+                # calculate accuracy
+                val_acc = self.calculate_accuracy(batch_y,preds)
+                val_accs.append(val_acc)
+                
+            # add epoch loss and acc to running list  
+            all_val_loss.append(np.mean(val_losses))
+            all_val_acc.append(np.mean(val_accs))
+            
+            if verbose and (epoch+1) % 10 == 0:
+                print(f'Epoch {epoch+1}: \
+                       \nTrain loss = {np.mean(train_losses)} \
+                       \nTrain accuracy = {np.mean(train_accs)} \
+                       \nValidation loss = {np.mean(val_losses)} \
+                       \nValidation accuracy = {np.mean(val_accs)}\n')
+                
+         
+        train_time = np.round((time.time()-start)/60,decimals=2)
+        print(f'Model training for {num_epochs} epochs completed in {train_time} minutes')
+        print(f'Final train loss = {all_train_loss[-1]} \
+              \nFinal train accuracy = {all_train_acc[-1]} \
+              \nFinal validation loss = {all_val_loss[-1]} \
+              \nFinal validation accuracy = {all_val_acc[-1]}')
         
-        # forward pass
-        preds = self.forward(x)
-
-        # calculate accuracy
-        accuracy = np.all(y==np.round(preds),axis=1).sum()/x.shape[0]
-
-        return accuracy
+        if output_metrics:
+            return all_train_loss, all_train_acc, all_val_loss, all_val_acc
+    
+    def create_batches(self,x,y):
+        
+        # concatenate x and y
+        data = np.hstack((x,y))
+        
+        # shuffle data
+        np.random.shuffle(data)
+            
+        # split data into batches
+        batch_data = np.array_split(data,data.shape[0]/self.batch_size)
+        
+        return batch_data
+              
+    def calculate_accuracy(self,y,y_hat):
+        
+        return np.all(y==np.round(y_hat),axis=1).sum()/y.shape[0]      
     
     def __str__(self):
         string = ''
@@ -208,55 +287,54 @@ class CrossEntropy(Module):
     
     def backward(self):
         return ((self.y_hat-self.y)/(self.y_hat*(1-self.y_hat)))/self.y.shape[0]
-            
+    
+def OneHotEncode(y):
+    labels = np.unique(y)
+    encoded_y = np.zeros((y.shape[0],len(labels)))
+    
+    lbl_dict = {lbl:i for i,lbl in enumerate(labels)}
+    
+    for i,label in enumerate(y):
+        encoded_y[i,lbl_dict[label]] = 1
+        
+    return encoded_y
         
     
-data = np.random.randn(8,10)
-y = np.array([[1, 0, 0, 0, 0],
-              [0, 1, 0, 0, 0],
-              [0, 0, 0, 0, 1],
-              [0, 0, 0, 1, 0],
-              [1, 0, 0, 0, 0],
-              [0, 0, 0, 1, 0],
-              [0, 0, 1, 0, 0],
-              [0, 0, 0, 1, 0]])
+# x = np.random.randn(8,10)
+# y = np.array([[1, 0, 0, 0, 0],
+#               [0, 1, 0, 0, 0],
+#               [0, 0, 0, 0, 1],
+#               [0, 0, 0, 1, 0],
+#               [1, 0, 0, 0, 0],
+#               [0, 0, 0, 1, 0],
+#               [0, 0, 1, 0, 0],
+#               [0, 0, 0, 1, 0]])
     
-testnet = MultiLayerPerceptron(input_size=10, 
-                               batch_size=8, 
-                               num_classes=5, 
-                               num_nodes=20,
+# testnet = MultiLayerPerceptron(input_size=10, 
+#                                batch_size=8, 
+#                                num_classes=5, 
+#                                num_nodes=20,
+#                                cost_function=CrossEntropy(),
+#                                learning_rate=0.001)
+
+# testnet.train(x,y)
+
+train = pd.read_csv('./MNIST/train.csv')
+test = pd.read_csv('./MNIST/test.csv')
+
+y_train = train.label
+X_train = train.drop('label',axis=1)
+
+testnet = MultiLayerPerceptron(input_size=X_train.shape[1], 
+                               batch_size=64, 
+                               num_classes=len(y_train.unique()), 
+                               num_nodes=500,
                                cost_function=CrossEntropy(),
                                learning_rate=0.001)
-out = testnet(data)
-cost_fn = CrossEntropy()
-cost = cost_fn(y,out)
-grad = cost_fn.backward()
 
-testnet.train(data,y)
-
-
-# sig = Sigmoid()
-# sm = SoftMax()
-# lr = 0.01
-# x = np.random.randn(1,3)
-# y = np.array([0,1])
-# W1 = np.random.randn(3,4)
-# b1 = 0.1
-# W2 = np.random.randn(4,2)
-# b2 = 0.1
-
-# # forward
-# o1 = np.matmul(x,W1)+b1
-# x2 = sig(o1)
-# o2 = np.matmul(x2,W2)+b2
-# y_hat = sm(o2)
-
-# # backward
-# dLdo2 = y_hat - y
-# do2dW2 = x2
-# do2dx2 = W2
-# dLdW2 = np.matmul(x2.T,dLdo2)
-# W2 -= dLdW2*lr
-# dLdx2 = dLdo2 do2dx2
-# dx2o1 = sig(o1)*(1-sig(o1))
-# dLdo1 = 1
+testnet.train(X_train,y_train,num_epochs=80,verbose=True)
+        
+all_train_loss, all_train_acc, all_val_loss, all_val_acc = testnet.train(X_train,y_train,
+                                                                         num_epochs=80,
+                                                                         verbose=True,
+                                                                         output_metrics=True)     
