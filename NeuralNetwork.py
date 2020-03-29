@@ -6,6 +6,7 @@ import pandas as pd
 from sklearn.model_selection import train_test_split
 from abc import ABC, abstractmethod
 import time
+import matplotlib.pyplot as plt
 
 class Module(ABC):
     '''
@@ -300,41 +301,42 @@ def OneHotEncode(y):
     return encoded_y
         
     
-# x = np.random.randn(8,10)
-# y = np.array([[1, 0, 0, 0, 0],
-#               [0, 1, 0, 0, 0],
-#               [0, 0, 0, 0, 1],
-#               [0, 0, 0, 1, 0],
-#               [1, 0, 0, 0, 0],
-#               [0, 0, 0, 1, 0],
-#               [0, 0, 1, 0, 0],
-#               [0, 0, 0, 1, 0]])
+# command line test for algorithm
+if __name__=='__main__':
+
+    # load MNIST train set
+    train = pd.read_csv('./MNIST/train.csv')
+
+    # split up x and y
+    y_train = train.label
+    X_train = train.drop('label',axis=1)
+
+    # initialize model
+    testnet = MultiLayerPerceptron(input_size=X_train.shape[1], 
+                                   batch_size=64, 
+                                   num_classes=len(y_train.unique()), 
+                                   num_nodes=500,
+                                   cost_function=CrossEntropy(),
+                                   learning_rate=0.001)
+
+    # train model
+    train_loss, train_acc, val_loss, val_acc = testnet.train(X_train,y_train,
+                                                             num_epochs=80,
+                                                             verbose=True,
+                                                             output_metrics=True) 
+   
+    # plot training loss
+    plt.plot(train_loss,color='blue',label='Train')
+    plt.plot(val_loss,color='orange',label='Validation')
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.legend()
+    plt.show()
     
-# testnet = MultiLayerPerceptron(input_size=10, 
-#                                batch_size=8, 
-#                                num_classes=5, 
-#                                num_nodes=20,
-#                                cost_function=CrossEntropy(),
-#                                learning_rate=0.001)
-
-# testnet.train(x,y)
-
-train = pd.read_csv('./MNIST/train.csv')
-test = pd.read_csv('./MNIST/test.csv')
-
-y_train = train.label
-X_train = train.drop('label',axis=1)
-
-testnet = MultiLayerPerceptron(input_size=X_train.shape[1], 
-                               batch_size=64, 
-                               num_classes=len(y_train.unique()), 
-                               num_nodes=500,
-                               cost_function=CrossEntropy(),
-                               learning_rate=0.001)
-
-testnet.train(X_train,y_train,num_epochs=80,verbose=True)
-        
-all_train_loss, all_train_acc, all_val_loss, all_val_acc = testnet.train(X_train,y_train,
-                                                                         num_epochs=80,
-                                                                         verbose=True,
-                                                                         output_metrics=True)     
+    # plot training accuracy
+    plt.plot(train_acc,color='blue',label='Train')
+    plt.plot(val_acc,color='orange',label='Validation')
+    plt.xlabel('Epoch')
+    plt.ylabel('Accuracy')
+    plt.legend()
+    plt.show()
