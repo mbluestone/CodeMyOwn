@@ -305,7 +305,7 @@ def OneHotEncode(y):
 if __name__=='__main__':
 
     # load MNIST train set
-    train = pd.read_csv('./MNIST/train.csv')
+    train = pd.read_csv('./data/MNIST/train.csv')
 
     # split up x and y
     y_train = train.label
